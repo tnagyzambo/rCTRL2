@@ -1,0 +1,114 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "clean all",
+            "type": "shell",
+            "command": "cargo clean",
+        },
+        {
+            "label": "rctrl-build",
+            "type": "shell",
+            "command": "clear && cargo build --manifest-path=rctrl/Cargo.toml",
+        },
+        {
+            "label": "rctrl-build release",
+            "type": "shell",
+            "command": "clear && cargo build --release --manifest-path=rctrl/Cargo.toml",
+        },
+        {
+            "label": "rctrl-build-arm64",
+            "type": "shell",
+            "command": "clear && cargo build --target aarch64-unknown-linux-gnu --manifest-path=rctrl/Cargo.toml",
+        },
+        {
+            "label": "rctrl-build-arm64 release",
+            "type": "shell",
+            "command": "clear && cargo build --target aarch64-unknown-linux-gnu --manifest-path=rctrl/Cargo.toml",
+        },
+        {
+            "label": "rctrl-test",
+            "type": "shell",
+            "command": "clear && cargo test --manifest-path=rctrl/Cargo.toml",
+        },
+        {
+            "label": "rctrl-run",
+            "type": "shell",
+            "command": "clear && cargo run --bin=rctrl",
+        },
+        {
+            "label": "gui-build",
+            "type": "shell",
+            "command": "clear && bash rctrl_gui/web_build.sh",
+        },
+        {
+            "label": "gui-test",
+            "type": "shell",
+            "command": "clear && cargo test --manifest-path=rctrl_gui/Cargo.toml",
+        },
+        {
+            "label": "remote-sync rctrl",
+            "type": "shell",
+            "command": "rsync",
+            "args": [
+                "-a",
+                "target/debug/rctrl",
+                "${input:user}@${input:ip}:~/",
+            ],
+        },
+        {
+            "label": "remote-sync rctrl release",
+            "type": "shell",
+            "command": "rsync",
+            "args": [
+                "-a",
+                "target/release/rctrl",
+                "${input:user}@${input:ip}:~/",
+            ],
+        },
+        {
+            "label": "remote-sync rctrl-arm64",
+            "type": "shell",
+            "command": "rsync",
+            "args": [
+                "-a",
+                "target/aarch64-unknown-linux-gnu/debug/rctrl",
+                "${input:user}@${input:ip}:~/",
+            ],
+        },
+        {
+            "label": "remote-sync rctrl-arm64 release",
+            "type": "shell",
+            "command": "rsync",
+            "args": [
+                "-a",
+                "target/aarch64-unknown-linux-gnu/release/rctrl",
+                "${input:user}@${input:ip}:~/",
+            ],
+        },
+        {
+            "label": "remote-sync gui",
+            "type": "shell",
+            "command": "rsync",
+            "args": [
+                "-a",
+                "rctrl/dist/*",
+                "${input:user}@${input:ip}:/var/www/rctrl/",
+            ],
+        },
+    ],
+    "inputs": [
+        {
+            "id": "ip",
+            "description": "Remote IP",
+            "type": "promptString",
+            "default": "192.168.2.2",
+        },
+        {
+            "id": "user",
+            "description": "Remote User",
+            "type": "promptString",
+            "default": "ros",
+        },
+    ]
+}
