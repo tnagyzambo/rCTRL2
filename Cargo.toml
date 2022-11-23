@@ -1,5 +1,6 @@
 [workspace]
 members = [
     "rctrl",
-    "rctrl_gui"
+    "rctrl_api",
+    "rctrl_gui",
 ]

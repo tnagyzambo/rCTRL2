@@ -24,13 +24,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -qy jq \
                                                        build-essential \
                                                        libfontconfig1-dev \
                                                        gcc-aarch64-linux-gnu \
-                                                       software-properties-common 
-
-# Install cmake (needed by WASM opt) (building from source takes > 8Gb memory)
-RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null
-RUN apt-add-repository "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main"
-RUN apt-get update
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -qy cmake
+                                                       software-properties-common
 
 # Install rust
 ENV RUSTUP_HOME=/usr/local/rustup \
@@ -46,19 +40,12 @@ RUN rustup component add rls rust-analysis rust-src
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install wasm-bindgen-cli
 
-# Install WASM opt
-USER root
-ENV WASM_OPT_RELEASE=108
-RUN wget https://github.com/WebAssembly/binaryen/archive/refs/tags/version_${WASM_OPT_RELEASE}.tar.gz
-RUN tar -xf version_${WASM_OPT_RELEASE}.tar.gz -C /lib
-RUN rm version_${WASM_OPT_RELEASE}.tar.gz
-RUN mkdir /lib/binaryen-version_${WASM_OPT_RELEASE}/build
-RUN cd /lib/binaryen-version_${WASM_OPT_RELEASE} && cmake . -DBUILD_TESTS=OFF && make -j $(nproc)
-ENV PATH="/lib/binaryen-version_${WASM_OPT_RELEASE}/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/lib/binaryen-version_${WASM_OPT_RELEASE}/lib:${LD_LIBRARY_PATH}"
+# Install trunk
+RUN cargo install --locked trunk
 
 # influxdb
 # REFERENCE: https://docs.influxdata.com/influxdb/v2.0/install/?t=Linux
+USER root
 ENV INFLUX_RELEASE=2.2.0
 ENV INFLUX_CL_RELEASE=2.3.0
 RUN arch="$(uname -m)"; \

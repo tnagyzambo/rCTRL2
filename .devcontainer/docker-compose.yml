@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+    web:
+        name: "rctrl_apache"
+        ports:
+            - "8080:80"
+        volumes:
+            - "$PWD/rctrl_gui/dist/:/usr/local/apache2/htdocs/"
+        depends_on:
+            - httpd
+    httpd:
+        image: httpd:latest

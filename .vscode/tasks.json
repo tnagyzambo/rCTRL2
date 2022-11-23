@@ -9,27 +9,27 @@
         {
             "label": "rctrl-build",
             "type": "shell",
-            "command": "clear && cargo build --manifest-path=rctrl/Cargo.toml",
+            "command": "clear && cargo build rctrl",
         },
         {
             "label": "rctrl-build release",
             "type": "shell",
-            "command": "clear && cargo build --release --manifest-path=rctrl/Cargo.toml",
+            "command": "clear && cargo build --release rctrl",
         },
         {
             "label": "rctrl-build-arm64",
             "type": "shell",
-            "command": "clear && cargo build --target aarch64-unknown-linux-gnu --manifest-path=rctrl/Cargo.toml",
+            "command": "clear && cargo build --target aarch64-unknown-linux-gnu rctrl",
         },
         {
             "label": "rctrl-build-arm64 release",
             "type": "shell",
-            "command": "clear && cargo build --target aarch64-unknown-linux-gnu --manifest-path=rctrl/Cargo.toml",
+            "command": "clear && cargo build --target aarch64-unknown-linux-gnu rctrl",
         },
         {
             "label": "rctrl-test",
             "type": "shell",
-            "command": "clear && cargo test --manifest-path=rctrl/Cargo.toml",
+            "command": "clear && cargo test rctrl",
         },
         {
             "label": "rctrl-run",
@@ -39,12 +39,12 @@
         {
             "label": "gui-build",
             "type": "shell",
-            "command": "clear && bash rctrl_gui/web_build.sh",
+            "command": "clear && cd rctrl_gui && trunk build",
         },
         {
             "label": "gui-test",
             "type": "shell",
-            "command": "clear && cargo test --manifest-path=rctrl_gui/Cargo.toml",
+            "command": "clear && cargo test rctrl_gui",
         },
         {
             "label": "remote-sync rctrl",
