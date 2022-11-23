@@ -5,5 +5,4 @@ edition = "2021"
 authors = ["tnagyzambo"]
 
 [dependencies]
-ewebsock = { git = "https://github.com/tnagyzambo/ewebsock" } # Revert to main fork pending https://github.com/rerun-io/ewebsock/pull/4
 serde = { version = "1.0.145", features = ["derive"] }
