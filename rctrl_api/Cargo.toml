@@ -5,4 +5,4 @@ edition = "2021"
 authors = ["tnagyzambo"]
 
 [dependencies]
-serde = { version = "1.0.145", features = ["derive"] }
+serde = { version = "1.0.147", features = ["derive"] }

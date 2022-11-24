@@ -1,27 +1,20 @@
 use anyhow::Result;
 use bincode;
 use futures_util::{SinkExt, StreamExt};
-use serde::{Deserialize, Serialize};
+use rctrl_api::remote::{Cmd, CmdEnum, Data};
 use std::fmt::Debug;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Builder;
 use tokio::sync::{mpsc, watch};
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{event, Instrument, Level};
+use tracing::{event, Level};
 use tracing_subscriber;
-
-#[derive(Serialize, Deserialize, Default, Debug)]
-struct Data {
-    i: i32,
-}
-
-struct Command {}
 
 fn main() {
     tracing_subscriber::fmt::init();
 
     let (data_tx, data_rx) = mpsc::channel::<Data>(16);
-    let (cmd_tx, cmd_rx) = mpsc::channel::<Command>(16);
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<Cmd>(16);
 
     let rt = Builder::new_current_thread().enable_all().build().unwrap();
 
@@ -37,16 +30,39 @@ fn main() {
     });
 
     // MAIN SYNC LOGIC HERE
-    let mut i: i32 = 0;
+    let mut sensor: f32 = 0.0;
+    let mut valve: bool = false;
     loop {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        i = i + 1;
-        data_tx.blocking_send(Data { i: i.clone() });
+        sensor = sensor + 0.1;
+
+        let mut log_msg: Option<String> = None;
+        match cmd_rx.try_recv() {
+            Ok(cmd) => match cmd.cmd {
+                CmdEnum::ValveOpen => {
+                    valve = true;
+                    log_msg = Some("valve opened".to_string());
+                }
+                CmdEnum::ValveClose => {
+                    valve = false;
+                    log_msg = Some("valve closed".to_string());
+                }
+            },
+            _ => (),
+        }
+
+        data_tx
+            .blocking_send(Data {
+                sensor: Some(sensor.clone()),
+                valve: Some(valve.clone()),
+                log_msg,
+            })
+            .unwrap_or_else(|e| event!(Level::ERROR, "failed to send data to tokio: {}", e));
     }
 }
 
 /// Main tokio runtime loop. All task that are not safe for realtime performance should be run from this runtime.
-async fn tokio_main(data_rx: mpsc::Receiver<Data>, cmd_tx: mpsc::Sender<Command>) -> Result<()> {
+async fn tokio_main(data_rx: mpsc::Receiver<Data>, cmd_tx: mpsc::Sender<Cmd>) -> Result<()> {
     // Read in config
     let addr = "127.0.0.1:9090".to_string();
 
@@ -74,7 +90,7 @@ async fn tokio_main(data_rx: mpsc::Receiver<Data>, cmd_tx: mpsc::Sender<Command>
 async fn await_connection(
     listener: TcpListener,
     data_latest_rx: watch::Receiver<Data>,
-    cmd_tx: mpsc::Sender<Command>,
+    cmd_tx: mpsc::Sender<Cmd>,
 ) {
     // Accept incoming TCP connections
     while let Ok((stream, _)) = listener.accept().await {
@@ -85,7 +101,7 @@ async fn await_connection(
         // Created gui connections are running in a detached state
         tokio::spawn(async move {
             match accept_connection(stream, cmd_tx_c, data_latest_rx_c).await {
-                Ok(()) => (),
+                Ok(addr) => event!(Level::INFO, "gui connection closed: {}", addr),
                 Err(e) => event!(Level::ERROR, "gui connection fatal error: {}", e),
             }
         });
@@ -95,9 +111,9 @@ async fn await_connection(
 /// Accept incoming TCP connection and attempt to promote to a WebSocket connection.
 async fn accept_connection(
     stream: TcpStream,
-    cmd_tx: mpsc::Sender<Command>,
+    cmd_tx: mpsc::Sender<Cmd>,
     data_latest_rx: watch::Receiver<Data>,
-) -> Result<()> {
+) -> Result<std::net::SocketAddr> {
     // Get address of peer
     let addr = stream.peer_addr()?;
 
@@ -119,16 +135,14 @@ async fn accept_connection(
     };
     _r?;
 
-    event!(Level::INFO, "gui connection closed: {}", addr);
-
-    Ok(())
+    Ok(addr)
 }
 
 /// Process incomming data from WebSocket.
 /// This function should only return on WebSocket close or fatal errors.
 ///
 /// Some advanced trait manipulation going on here. This function is generic on Streams
-/// via the StreamExt trait. Unlike SinkExt, the underlying data type of the Stream is not available
+/// via the TryStreamExt trait. Unlike SinkExt, the underlying data type of the Stream is not available
 /// as a generic argument for the trait. Instead the associated type Item must be constrained to our
 /// WebSocket read return type via the <Item = ...> argument provided to the StreamExt trait.
 /// Additionally, the Stream must also implement Unpin (due to how streams work).
@@ -136,12 +150,20 @@ async fn ws_read<
     R: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 >(
     mut ws_rx: R,
-    cmd_tx: mpsc::Sender<Command>,
+    cmd_tx: mpsc::Sender<Cmd>,
 ) -> Result<()> {
     while let Some(msg) = ws_rx.next().await {
         let msg = msg?;
-        match msg {
-            _ => event!(Level::DEBUG, "{:?}", msg),
+
+        if msg.is_binary() {
+            match bincode::deserialize::<Cmd>(&msg.into_data()) {
+                Ok(cmd) => cmd_tx.send(cmd).await?,
+                Err(e) => event!(
+                    Level::ERROR,
+                    "error deserializing incomming websocket message: {}",
+                    e
+                ),
+            };
         }
     }
 
@@ -155,17 +177,25 @@ async fn ws_read<
 /// of the stream must be provided as a generic argument to the trait as SinkExt<Item>.
 /// Additionally, the Sink must also implement Unpin (due to how streams work)
 /// and Debug (to allow ? opperator).
+/// Some additional contstaints must be placed on T when it produces an error, in order for the
+/// error to be thread safe.
 async fn ws_write<T: SinkExt<Message> + Unpin + Debug>(
     mut ws_tx: T,
     mut data_latest_rx: watch::Receiver<Data>,
 ) -> Result<()>
 where
-    <T as futures_util::Sink<Message>>::Error: Debug,
+    <T as futures_util::Sink<Message>>::Error:
+        'static + std::error::Error + std::marker::Send + Sync,
 {
     while let Ok(data) = data_latest_rx.changed().await {
-        ws_tx
-            .send(Message::Binary(bincode::serialize(&data)?))
-            .await;
+        match bincode::serialize(&data) {
+            Ok(msg) => ws_tx.send(Message::Binary(msg)).await?,
+            Err(e) => event!(
+                Level::ERROR,
+                "failed to serialize outgoing websocket meesage: {}",
+                e
+            ),
+        }
     }
 
     Ok(())

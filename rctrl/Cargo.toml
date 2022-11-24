@@ -8,6 +8,7 @@ authors = ["tnagyzambo"]
 anyhow = "1.0"
 bincode = "1.3.3"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rctrl_api = { path = "../rctrl_api" }
 serde = { version = "1.0.147", features = ["derive"] }
 tokio = { version = "1.0.0", default-features = false, features = ["io-util", "net", "macros", "rt-multi-thread", "sync"] }
 tokio-tungstenite = "*"
