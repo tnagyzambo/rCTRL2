@@ -1,8 +1,11 @@
 use anyhow::Result;
 use bincode;
+use ctrlc;
 use futures_util::{SinkExt, StreamExt};
 use rctrl_api::remote::{Cmd, CmdEnum, Data};
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Builder;
 use tokio::sync::{mpsc, watch};
@@ -15,24 +18,59 @@ fn main() {
 
     let (data_tx, data_rx) = mpsc::channel::<Data>(16);
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<Cmd>(16);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let rt = Builder::new_current_thread().enable_all().build().unwrap();
 
     // Run tokio runtime on new thread
     // Fatal errors on the tokio runtime thread should not crash the main sync thread
-    std::thread::spawn(move || {
+    // Joining a thread handle moves it out to prevent a thread from being closed twice
+    // as a result the join handle does not implement clone() and needs to be wrapped in
+    // an Option<()> in order to be shared
+    let mut tokio_handle = Some(std::thread::spawn(move || {
         rt.block_on(async move {
-            match tokio_main(data_rx, cmd_tx).await {
+            match tokio_main(data_rx, cmd_tx, shutdown_rx).await {
                 Ok(()) => event!(Level::INFO, "tokio runtime exited successfully"),
                 Err(e) => event!(Level::ERROR, "tokio runtime exited with error: {}", e),
             }
         });
-    });
+    }));
+
+    // Hook into ctrl + c shut down signal
+    // We want to send a shutdown signal to the tokio runtime so it can clean up after itself
+    // Wait for cleanup to finish and then exit the program by setting the running flag to false
+    let running = Arc::new(AtomicBool::new(true));
+    let running_c = running.clone();
+    match ctrlc::set_handler(move || {
+        event!(Level::INFO, "exiting...");
+        match shutdown_tx.send(true) {
+            Ok(()) => (),
+            Err(e) => event!(
+                Level::ERROR,
+                "failed to send shutdown signal to tokio: {}",
+                e
+            ),
+        };
+
+        // Have to match on the thread handle existing as it might have crashed in the background
+        match tokio_handle.take() {
+            Some(thread) => thread.join().unwrap(),
+            None => (),
+        };
+
+        running_c.store(false, Ordering::SeqCst);
+    }) {
+        Ok(()) => (),
+        Err(e) => {
+            event!(Level::ERROR, "failed to set ctrlc handler: {}", e);
+            return;
+        }
+    }
 
     // MAIN SYNC LOGIC HERE
     let mut sensor: f32 = 0.0;
     let mut valve: bool = false;
-    loop {
+    while running.load(Ordering::SeqCst) {
         std::thread::sleep(std::time::Duration::from_millis(50));
         sensor = sensor + 0.1;
 
@@ -59,10 +97,16 @@ fn main() {
             })
             .unwrap_or_else(|e| event!(Level::ERROR, "failed to send data to tokio: {}", e));
     }
+
+    event!(Level::INFO, "exited");
 }
 
 /// Main tokio runtime loop. All task that are not safe for realtime performance should be run from this runtime.
-async fn tokio_main(data_rx: mpsc::Receiver<Data>, cmd_tx: mpsc::Sender<Cmd>) -> Result<()> {
+async fn tokio_main(
+    data_rx: mpsc::Receiver<Data>,
+    cmd_tx: mpsc::Sender<Cmd>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> Result<()> {
     // Read in config
     let addr = "127.0.0.1:9090".to_string();
 
@@ -72,15 +116,19 @@ async fn tokio_main(data_rx: mpsc::Receiver<Data>, cmd_tx: mpsc::Sender<Cmd>) ->
 
     let (data_latest_tx, data_latest_rx) = watch::channel(Data::default());
 
-    // Gui WebSocket connection handling and data logging are long running async tasks
-    // We join their futures to allow for concurrent execution on the current tokio task
-    // join! only returns when all futures are complete
-    // If there is a fatal error on one of the tasks, the remaining will run until completion
-    // These tasks should not return a value, they should be resoponsible for their own error handling
-    tokio::join!(
-        await_connection(listener, data_latest_rx, cmd_tx),
-        process_data(data_rx, data_latest_tx),
-    );
+    let t1 = tokio::task::spawn(await_connection(listener, data_latest_rx, cmd_tx));
+    let t2 = tokio::task::spawn(process_data(data_rx, data_latest_tx));
+
+    let tasks = [t1, t2];
+    tokio::select! {
+       // Gui WebSocket connection handling and data logging are long running async tasks
+       // We join their futures to allow for concurrent execution on the current tokio task
+       // join! only returns when all futures are complete
+       // If there is a fatal error on one of the tasks, the remaining will run until completion
+       // These tasks should not return a value, they should be resoponsible for their own error handling
+       _ = futures_util::future::join_all(tasks) => (),
+       _ = shutdown_rx.changed() => (),
+    };
 
     Ok(())
 }
@@ -128,12 +176,10 @@ async fn accept_connection(
     // Run async read/write functions simultaneously on the current tokio task
     // select! exits on the first returned future
     // Assign and unwrap with ? returned future to allow for early exit on error
-    let mut _r = Ok(());
     tokio::select! {
-        r = ws_read(ws_rx, cmd_tx) => _r = r,
-        r = ws_write(ws_tx, data_latest_rx) => _r = r,
+        r = ws_read(ws_rx, cmd_tx) => r?,
+        r = ws_write(ws_tx, data_latest_rx) => r?,
     };
-    _r?;
 
     Ok(addr)
 }
@@ -201,6 +247,7 @@ where
     Ok(())
 }
 
+/// DISPATCH DATA TO WEBSOCKET AND DATALOGGER
 async fn process_data(mut data_rx: mpsc::Receiver<Data>, data_latest_tx: watch::Sender<Data>) {
     while let Some(data) = data_rx.recv().await {
         data_latest_tx.send(data).unwrap(); // THIS CAN FAIL IF WEBSOCKET CRASHES
