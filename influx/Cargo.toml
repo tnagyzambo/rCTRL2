@@ -1,8 +1,8 @@
 [package]
-name = "rctrl_api"
+name = "influx"
 version = "0.1.0"
 edition = "2021"
 authors = ["tnagyzambo"]
 
 [dependencies]
-serde = { version = "1.0.147", features = ["derive"] }
+influx_derive = { path = "derive" }

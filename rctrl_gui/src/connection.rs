@@ -13,13 +13,13 @@ pub trait Connection {
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ConnectionManager {
     open: bool,
-    ws_remote: WebSocketConnection,
-    ws_telemetry: WebSocketConnection,
+    pub ws_remote: WebSocketConnection,
+    pub ws_telemetry: WebSocketConnection,
 }
 
 impl ConnectionManager {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let ws_remote = WebSocketConnection::new("Remote", "wss://demo.piesocket.com/v3/channel_1?api_key=VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV&notify_self", &cc.egui_ctx);
+        let ws_remote = WebSocketConnection::new("Remote", "ws://127.0.0.1:9090", &cc.egui_ctx);
         let ws_telemetry = WebSocketConnection::new("Remote", "", &cc.egui_ctx);
 
         Self {
@@ -44,11 +44,11 @@ impl ConnectionManager {
         self.open = !self.open;
     }
 
-    pub fn read(&mut self) {
-        for connection in self.connection_vec() {
-            connection.read();
-        }
-    }
+    //pub fn read(&mut self) {
+    //    for connection in self.connection_vec() {
+    //        connection.read();
+    //    }
+    //}
 
     pub fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.open {

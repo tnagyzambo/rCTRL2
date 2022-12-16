@@ -3,6 +3,7 @@ use bincode;
 use ctrlc;
 use futures_util::{SinkExt, StreamExt};
 use rctrl_api::remote::{Cmd, CmdEnum, Data};
+use rctrl_api::sensor::Pressure;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -13,13 +14,39 @@ use tokio_tungstenite::tungstenite::Message;
 use tracing::{event, Level};
 use tracing_subscriber;
 
+use influx::{LineProtocol, ToFieldValue, ToLineProtocol};
+
+#[derive(Debug, ToLineProtocol)]
+#[influx(measurement = "pressure")]
+struct Test {
+    #[influx(field = "pressure")]
+    value: Option<bool>,
+    #[influx(tag = "ident")]
+    id: String,
+    #[influx(tag = "loc")]
+    location: String,
+    #[influx(tag)]
+    units: String,
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
+
+    let mut test = Test {
+        value: Some(false),
+        id: "pressure_1".to_owned(),
+        location: "virtual".to_owned(),
+        units: "bar".to_owned(),
+    };
+    let out = test.to_line_protocol().unwrap();
+    event!(Level::INFO, "{:?}", out);
+    return;
 
     let (data_tx, data_rx) = mpsc::channel::<Data>(16);
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<Cmd>(16);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
+    // Create new single threaded runtime
     let rt = Builder::new_current_thread().enable_all().build().unwrap();
 
     // Run tokio runtime on new thread
@@ -43,6 +70,8 @@ fn main() {
     let running_c = running.clone();
     match ctrlc::set_handler(move || {
         event!(Level::INFO, "exiting...");
+        running_c.store(false, Ordering::SeqCst);
+
         match shutdown_tx.send(true) {
             Ok(()) => (),
             Err(e) => event!(
@@ -57,8 +86,6 @@ fn main() {
             Some(thread) => thread.join().unwrap(),
             None => (),
         };
-
-        running_c.store(false, Ordering::SeqCst);
     }) {
         Ok(()) => (),
         Err(e) => {
@@ -68,34 +95,40 @@ fn main() {
     }
 
     // MAIN SYNC LOGIC HERE
-    let mut sensor: f32 = 0.0;
-    let mut valve: bool = false;
+    let mut data = Data {
+        sensor: Pressure::new("pressure_1", "virtual", "bar"),
+        valve: Some(false),
+        log_msg: None,
+    };
+
     while running.load(Ordering::SeqCst) {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        sensor = sensor + 0.1;
+        data.sensor.pressure = Some(data.sensor.pressure.unwrap_or(0.0) + 0.1);
 
-        let mut log_msg: Option<String> = None;
+        // Recieve data from tokio runtime in a non-blocking way
         match cmd_rx.try_recv() {
             Ok(cmd) => match cmd.cmd {
                 CmdEnum::ValveOpen => {
-                    valve = true;
-                    log_msg = Some("valve opened".to_string());
+                    data.valve = Some(true);
+                    data.log_msg = Some("valve opened".to_string());
                 }
                 CmdEnum::ValveClose => {
-                    valve = false;
-                    log_msg = Some("valve closed".to_string());
+                    data.valve = Some(false);
+                    data.log_msg = Some("valve closed".to_string());
                 }
             },
             _ => (),
         }
 
-        data_tx
-            .blocking_send(Data {
-                sensor: Some(sensor.clone()),
-                valve: Some(valve.clone()),
-                log_msg,
-            })
-            .unwrap_or_else(|e| event!(Level::ERROR, "failed to send data to tokio: {}", e));
+        // Send data to tokio runtime in a non-blocking way
+        match data_tx.try_send(data.clone()) {
+            Err(e) => {
+                if running.load(Ordering::SeqCst) {
+                    event!(Level::ERROR, "failed to send data to tokio runtime: {}", e);
+                }
+            }
+            _ => (),
+        }
     }
 
     event!(Level::INFO, "exited");
@@ -112,7 +145,7 @@ async fn tokio_main(
 
     // TCP socket listener to accept connections on, event loop runs in tokio executor
     let listener = TcpListener::bind(&addr).await?;
-    event!(Level::INFO, "gui connection avaiable on: {}", addr);
+    event!(Level::INFO, "gui connection available on: {}", addr);
 
     let (data_latest_tx, data_latest_rx) = watch::channel(Data::default());
 
@@ -188,7 +221,7 @@ async fn accept_connection(
 /// This function should only return on WebSocket close or fatal errors.
 ///
 /// Some advanced trait manipulation going on here. This function is generic on Streams
-/// via the TryStreamExt trait. Unlike SinkExt, the underlying data type of the Stream is not available
+/// via the TryStreamExt trait. Unlike SinkExt, the underlying data type of the Stream is not availlable
 /// as a generic argument for the trait. Instead the associated type Item must be constrained to our
 /// WebSocket read return type via the <Item = ...> argument provided to the StreamExt trait.
 /// Additionally, the Stream must also implement Unpin (due to how streams work).
@@ -225,7 +258,7 @@ async fn ws_read<
 /// and Debug (to allow ? opperator).
 /// Some additional contstaints must be placed on T when it produces an error, in order for the
 /// error to be thread safe.
-async fn ws_write<T: SinkExt<Message> + Unpin + Debug>(
+async fn ws_write<'a, T: SinkExt<Message> + Unpin + Debug>(
     mut ws_tx: T,
     mut data_latest_rx: watch::Receiver<Data>,
 ) -> Result<()>
@@ -233,7 +266,10 @@ where
     <T as futures_util::Sink<Message>>::Error:
         'static + std::error::Error + std::marker::Send + Sync,
 {
-    while let Ok(data) = data_latest_rx.changed().await {
+    while let Ok(()) = data_latest_rx.changed().await {
+        // I don't like that this data needs to be cloned twice
+        let data = data_latest_rx.borrow().clone();
+
         match bincode::serialize(&data) {
             Ok(msg) => ws_tx.send(Message::Binary(msg)).await?,
             Err(e) => event!(
@@ -247,11 +283,55 @@ where
     Ok(())
 }
 
-/// DISPATCH DATA TO WEBSOCKET AND DATALOGGER
+/// log all data recieved on the data_rx mspc channel to InfluxDB.
+/// Retransmit recieved data at a reduced rate to the WebSocket.
+/// Some performance considerations for this fucntion: constant reallocation of the influx write buffer
+/// is unwanted. A single pre-allocation is made for every batch write to InfluxDB. If the buffer fills up
+/// and has to reallocate, the new larger size is used for the next pre-allocation.
+///
+/// Ideally, a shared memory pool is created once, and portions of the memory pool are used and freed as
+/// they are needed by the spawned tokio tasks. This is complicated, and not currently implemented.
 async fn process_data(mut data_rx: mpsc::Receiver<Data>, data_latest_tx: watch::Sender<Data>) {
-    while let Some(data) = data_rx.recv().await {
-        data_latest_tx.send(data).unwrap(); // THIS CAN FAIL IF WEBSOCKET CRASHES
+    let mut last_data_latest_tx = std::time::Instant::now();
+    let mut influx_write_buf_capacity = 20;
+
+    while true {
+        // Pre-allocate buffer string
+        let mut influx_write_buf = String::with_capacity(influx_write_buf_capacity);
+        let mut influx_write_entries = 0;
+
+        while let Some(data) = data_rx.recv().await {
+            // Every 15ms update the WebSocket
+            // If the WebSocket crashes the send will fail, there is nothing that we can do about it
+            // so we ignore the error
+            if last_data_latest_tx.elapsed().as_millis() > 15 {
+                _ = data_latest_tx.send(data.clone());
+                last_data_latest_tx = std::time::Instant::now();
+            }
+
+            //for entry in data.to_influx_entries() {
+            //    influx_write_buf.push_str(entry.as_str());
+            //    influx_write_entries += 1;
+            //}
+
+            // Write to influx in ~5000 line batches
+            if influx_write_entries > 50 {
+                if influx_write_buf.len() > influx_write_buf_capacity {
+                    influx_write_buf_capacity = influx_write_buf.len();
+                    event!(
+                        Level::INFO,
+                        "grew capaicty of influx write buffer to {}",
+                        influx_write_buf_capacity
+                    );
+                }
+
+                tokio::task::spawn(write_to_influx(influx_write_buf));
+                break;
+            }
+        }
     }
 
     event!(Level::INFO, "process_exit");
 }
+
+async fn write_to_influx(data: String) {}

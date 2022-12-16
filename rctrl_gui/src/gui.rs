@@ -1,8 +1,12 @@
-use crate::connection::ConnectionManager;
+use crate::connection::{Connection, ConnectionManager};
 use crate::logger::LoggerApp;
 use crate::remote::RemoteApp;
 use crate::telemetry::TelemetryApp;
+use bincode;
 use eframe::egui;
+use ewebsock::WsMessage;
+use rctrl_api::remote::Data;
+use tracing::{event, Level};
 
 /// Main GUI data structure.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -73,7 +77,17 @@ impl eframe::App for Gui {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Check for any messages over open connections
-        self.connections.read();
+        match self.connections.ws_remote.read() {
+            Some(msg) => match msg {
+                WsMessage::Binary(data) => match bincode::deserialize::<Data>(&data[..]) {
+                    Ok(data) => self.remote.data = data,
+                    Err(e) => event!(Level::ERROR, "{} {:?}", e, data),
+                },
+                _ => (),
+            },
+            None => (),
+        }
+        //self.connections.read();
 
         // Draw top menu ribbon
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {

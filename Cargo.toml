@@ -3,4 +3,5 @@ members = [
     "rctrl",
     "rctrl_api",
     "rctrl_gui",
+    "influx",
 ]

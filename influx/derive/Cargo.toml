@@ -1,0 +1,13 @@
+[package]
+name = "influx_derive"
+version = "0.1.0"
+edition = "2021"
+authors = ["tnagyzambo"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "1.0.105"
+quote = "1.0.21"
+virtue = "0.0.11"
