@@ -1,6 +1,7 @@
 use virtue::prelude::*;
 use virtue::utils::{parse_tagged_attribute, ParsedAttribute};
 
+/// Valid Influx timestamp precision.
 pub enum TimestampPrecision {
     Nanoseconds,
     Microseconds,
@@ -8,7 +9,9 @@ pub enum TimestampPrecision {
     Seconds,
 }
 
+/// Valid Influx timestamp precision.
 impl TimestampPrecision {
+    /// std::time::SystemTime function call to convert to precision, used in proc macro body.
     pub fn as_function_call(&self) -> String {
         match *self {
             TimestampPrecision::Nanoseconds => "as_nanos".to_string(),
@@ -19,6 +22,7 @@ impl TimestampPrecision {
     }
 }
 
+/// Annotations outside of the structure being derived for.
 pub struct ContainerAttributes {
     pub measurement: String,
     pub timestamp_precision: TimestampPrecision,
@@ -95,6 +99,7 @@ impl FromAttribute for ContainerAttributes {
     }
 }
 
+/// Annotations for members of struct being derived for.
 pub enum FieldAttributes {
     Tag(Option<String>),
     Field(Option<String>),

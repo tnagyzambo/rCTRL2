@@ -1,3 +1,6 @@
+//! This crate is the procedural macro implementation of serializing data to valid influx line
+//! protocol entries. This crate borrows heavily from bincode-derive.
+
 mod attribute;
 mod derive_struct;
 
@@ -24,7 +27,7 @@ fn derive_to_line_protocol_inner(input: TokenStream) -> Result<TokenStream> {
             }
             .generate_to_line_protocol(&mut generator)?;
         }
-        Body::Enum(body) => {
+        Body::Enum(_body) => {
             //TODO: impletement enum encoding
         }
     }
