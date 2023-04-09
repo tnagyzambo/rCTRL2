@@ -52,10 +52,10 @@ impl DeriveStruct {
                             ))?;
                         }
                         FieldAttributes::Field(f) => {
-                            fn_body.push_parsed(format!("match self.{} {{
-                                Some(value) => fields.push(format!(\"{}={{}}\", value.to_field_value())),
-                                None => (),
-                            }}", field.to_string(),  f.unwrap_or(field.to_string()),
+                            fn_body.push_parsed(format!(
+                                "fields.push(format!(\"{}={{}}\", self.{}.to_field_value()));",
+                                field.to_string(),  
+                                f.unwrap_or(field.to_string()),
                             ))?;
                         }
                         _ => (),
