@@ -1,8 +1,11 @@
+cargo-features = ["per-package-target"]
+
 [package]
 name = "rctrl"
 version = "0.1.0"
 edition = "2021"
 authors = ["tnagyzambo"]
+forced-target =  "aarch64-unknown-linux-gnu"
 
 [dependencies]
 anyhow = "1.0"
