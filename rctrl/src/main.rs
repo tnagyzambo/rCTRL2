@@ -14,7 +14,7 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     let (data_tx, data_rx) = mpsc::channel::<Data>(16);
-    let (cmd_tx, mut cmd_rx) = mpsc::channel::<Cmd>(16);
+    let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>(16);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     // Create new single threaded runtime
@@ -65,6 +65,9 @@ fn main() {
         }
     }
 
+    // Create syncronous logic context
+    // This invloves steps such as hardware initialization so might fail
+    // Failure to create the syncronous logic context should result in a fatal error
     let mut sync_ctx = match rctrl_sync::Context::new(cmd_rx, data_tx) {
         Ok(ctx) => ctx,
         Err(e) => {
@@ -73,6 +76,7 @@ fn main() {
         }
     };
 
+    // Run syncronous logic
     while running.load(Ordering::SeqCst) {
         sync_ctx.run()
     }

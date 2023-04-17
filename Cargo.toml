@@ -3,5 +3,6 @@ members = [
     "rctrl",
     "rctrl_api",
     "rctrl_gui",
+    "rctrl_hw",
     "influx",
 ]

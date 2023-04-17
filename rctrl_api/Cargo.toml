@@ -5,4 +5,6 @@ edition = "2021"
 authors = ["tnagyzambo"]
 
 [dependencies]
+influx = { path = "../influx" }
 serde = { version = "1.0.147", features = ["derive"] }
+strum = { version = "0.24", features = ["derive"] }
