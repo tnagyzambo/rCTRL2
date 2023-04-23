@@ -1,10 +1,10 @@
 pub mod remote {
-    //use crate::sensor::Pressure;
+    use crate::sensor::Pressure;
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Serialize, Deserialize, Default, Debug)]
     pub struct Data {
-        //pub sensor: Option<Pressure>,
+        pub sensor: Option<Pressure>,
         pub valve: Option<bool>,
         pub log_msg: Option<String>,
     }
@@ -21,25 +21,25 @@ pub mod remote {
     }
 }
 
-//pub mod sensor {
-//    use influx::{LineProtocol, ToFieldValue, ToLineProtocol};
-//    use serde::{Deserialize, Serialize};
-//    use strum::Display;
-//
-//    #[derive(Clone, Debug, Display, Serialize, Deserialize)]
-//    enum PressureUnit {
-//        Bar,
-//    }
-//
-//    #[derive(Clone, Serialize, Deserialize, Debug, ToLineProtocol)]
-//    #[influx(measurement = "pressure")]
-//    pub struct Pressure {
-//        #[influx(field = "pressure")]
-//        pressure: f64,
-//        #[influx(tag)]
-//        unit: PressureUnit,
-//    }
-//}
+pub mod sensor {
+    //    use influx::{LineProtocol, ToFieldValue, ToLineProtocol};
+    use serde::{Deserialize, Serialize};
+    use strum::Display;
+    //
+    #[derive(Clone, Debug, Display, Serialize, Deserialize)]
+    pub enum PressureUnit {
+        Bar,
+    }
+    //
+    #[derive(Clone, Serialize, Deserialize, Debug)]
+    //    #[influx(measurement = "pressure")]
+    pub struct Pressure {
+        //        #[influx(field = "pressure")]
+        pub pressure: f64,
+        //        #[influx(tag)]
+        pub unit: PressureUnit,
+    }
+}
 
 //impl remote::Data {
 //    pub fn to_influx_entries(self) -> Vec<LineProtocol> {

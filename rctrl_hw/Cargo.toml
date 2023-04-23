@@ -1,0 +1,14 @@
+[package]
+name = "rctrl_hw"
+version = "0.1.0"
+edition = "2021"
+authors = ["tnagyzambo"]
+
+[dependencies]
+anyhow = "1.0"
+cfg-if = "1.0.0"
+rctrl_api = { path = "../rctrl_api" }
+i2cdev = { path = "../../rust-i2cdev" }
+influx = { path = "../influx" }
+serde = { version = "1.0.147", features = ["derive"] }
+tracing = "0.1.37"

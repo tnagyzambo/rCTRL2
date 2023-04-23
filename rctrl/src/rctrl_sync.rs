@@ -1,5 +1,7 @@
 use anyhow::Result;
 use rctrl_api::remote::{Cmd, CmdEnum, Data};
+use rctrl_api::sensor::Pressure;
+use rctrl_hw::adc::ads101x;
 use rctrl_hw::adc::ads101x::ADS101x;
 use rctrl_hw::sensor::KellerPA7LC;
 use tokio::sync::mpsc;
@@ -10,7 +12,8 @@ pub struct Context {
     cmd_rx: mpsc::Receiver<Cmd>,
     data_tx: mpsc::Sender<Data>,
 
-    sensors: Sensors,
+    adc: ADC,
+    sensor: Sensor,
 }
 
 impl Context {
@@ -19,7 +22,8 @@ impl Context {
         let ctx = Self {
             cmd_rx,
             data_tx,
-            sensors: Sensors::new()?,
+            adc: ADC::new()?,
+            sensor: Sensor::new()?,
         };
 
         Ok(ctx)
@@ -54,23 +58,37 @@ impl Context {
 
         std::thread::sleep(std::time::Duration::from_millis(500));
 
-        match self.sensors.pressure.read() {
-            Ok(value) => println!("{:?}", value),
-            Err(e) => (),
+        data.sensor = match self.adc.fc_ads1014_no1.read_ain1(&self.sensor.pressure) {
+            Ok(pressure) => Some(pressure),
+            Err(e) => None,
         };
     }
 }
 
-struct Sensors {
-    pressure: KellerPA7LC<ADS101x>,
+struct ADC {
+    fc_ads1014_no1: ADS101x,
 }
 
-impl Sensors {
+impl ADC {
     fn new() -> Result<Self> {
-        let mut pressure_adc = ADS101x::new("path", 0x00)?;
-        pressure_adc.config(|config| config.with_os_on().build())?;
-        let pressure = KellerPA7LC::new(pressure_adc);
+        let mut fc_ads1014_no1 = ADS101x::new("path", 0x00)?;
+        fc_ads1014_no1.config(
+            ads101x::Config::default()
+                .with_os(ads101x::Os::On)
+                .with_mux(ads101x::Mux::Ain0Ain3),
+        )?;
+        Ok(Self { fc_ads1014_no1 })
+    }
+}
 
-        Ok(Self { pressure })
+struct Sensor {
+    pressure: KellerPA7LC,
+}
+
+impl Sensor {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            pressure: KellerPA7LC::new(),
+        })
     }
 }
