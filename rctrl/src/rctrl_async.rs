@@ -1,6 +1,7 @@
 use anyhow::Result;
 use bincode;
 use futures_util::{SinkExt, StreamExt};
+use influx::ToLineProtocolEntries;
 use rctrl_api::remote::{Cmd, Data};
 use std::fmt::Debug;
 use tokio::net::{TcpListener, TcpStream};
@@ -127,7 +128,7 @@ async fn ws_read<
 /// This function should only return on fatal errors.
 ///
 /// This function is generic on Sinks via the SinkExt trait. The underlying data type
-/// of the stream must be provided as a generic argument to the trait as SinkExt<Item>.
+/// of the stream must be provided as a generic argument to the trait as `SinkExt<Item>`.
 /// Additionally, the Sink must also implement Unpin (due to how streams work)
 /// and Debug (to allow ? opperator).
 /// Some additional contstaints must be placed on T when it produces an error, in order for the
@@ -157,7 +158,7 @@ where
     Ok(())
 }
 
-/// log all data recieved on the data_rx mspc channel to InfluxDB.
+/// Log all data recieved on the data_rx mspc channel to InfluxDB.
 /// Retransmit recieved data at a reduced rate to the WebSocket.
 /// Some performance considerations for this fucntion: constant reallocation of the influx write buffer
 /// is unwanted. A single pre-allocation is made for every batch write to InfluxDB. If the buffer fills up
@@ -171,8 +172,8 @@ async fn process_data(mut data_rx: mpsc::Receiver<Data>, data_latest_tx: watch::
 
     loop {
         // Pre-allocate buffer string
-        let influx_write_buf = String::with_capacity(influx_write_buf_capacity);
-        let influx_write_entries = 0;
+        let mut influx_write_buf = String::with_capacity(influx_write_buf_capacity);
+        let mut influx_write_entries = 0;
 
         while let Some(data) = data_rx.recv().await {
             // Every 15ms update the WebSocket
@@ -183,10 +184,20 @@ async fn process_data(mut data_rx: mpsc::Receiver<Data>, data_latest_tx: watch::
                 last_data_latest_tx = std::time::Instant::now();
             }
 
-            //for entry in data.to_influx_entries() {
-            //    influx_write_buf.push_str(entry.as_str());
-            //    influx_write_entries += 1;
-            //}
+            // Convert data to line protocol and write to buffer
+            match data.to_line_protocol_entries() {
+                Ok(mut line_protocol_entries) => {
+                    while let Some(line_protocol_entry) = line_protocol_entries.pop() {
+                        influx_write_buf.push_str(line_protocol_entry.as_str());
+                        influx_write_entries += 1;
+                    }
+                }
+                Err(e) => event!(
+                    Level::ERROR,
+                    "failed to convert data to line protocol entries: {:?}",
+                    e
+                ),
+            }
 
             // Write to influx in ~5000 line batches
             if influx_write_entries > 50 {
@@ -204,8 +215,6 @@ async fn process_data(mut data_rx: mpsc::Receiver<Data>, data_latest_tx: watch::
             }
         }
     }
-
-    event!(Level::INFO, "process_exit");
 }
 
 async fn write_to_influx(data: String) {}

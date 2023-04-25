@@ -3,6 +3,7 @@
 use std::time::SystemTimeError;
 
 /// Errors that can be encountered creating valid influx line protocol.
+// TODO: impl Display
 #[derive(Debug)]
 pub enum LineProtocolError {
     /// General Error

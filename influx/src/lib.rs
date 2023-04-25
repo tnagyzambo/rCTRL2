@@ -24,7 +24,7 @@
 //!
 //! [lp]: https://docs.influxdata.com/influxdb/v2.6/reference/syntax/line-protocol/
 
-pub use influx_derive::ToLineProtocol;
+pub use influx_derive::{ToLineProtocol, ToLineProtocolEntries};
 
 pub mod error;
 
@@ -34,6 +34,10 @@ pub type LineProtocol = String;
 /// To valid influx line protocol
 pub trait ToLineProtocol {
     fn to_line_protocol(&self) -> Result<LineProtocol, error::LineProtocolError>;
+}
+
+pub trait ToLineProtocolEntries {
+    fn to_line_protocol_entries(&self) -> Result<Vec<LineProtocol>, error::LineProtocolError>;
 }
 
 /// To valid influx field value.

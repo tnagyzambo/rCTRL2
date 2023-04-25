@@ -104,11 +104,12 @@ pub enum FieldAttributes {
     Tag(Option<String>),
     Field(Option<String>),
     Untracked,
+    None,
 }
 
 impl Default for FieldAttributes {
     fn default() -> Self {
-        FieldAttributes::Untracked
+        FieldAttributes::None
     }
 }
 
@@ -144,6 +145,9 @@ impl FromAttribute for FieldAttributes {
                 }
                 ParsedAttribute::Tag(i) if i.to_string() == "field" => {
                     result = FieldAttributes::Field(None);
+                }
+                ParsedAttribute::Tag(i) if i.to_string() == "untracked" => {
+                    result = FieldAttributes::Untracked;
                 }
                 ParsedAttribute::Tag(i) => {
                     return Err(Error::custom_at("Unknown field attribute", i.span()))

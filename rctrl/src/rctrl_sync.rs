@@ -1,6 +1,5 @@
 use anyhow::Result;
 use rctrl_api::remote::{Cmd, CmdEnum, Data};
-use rctrl_api::sensor::Pressure;
 use rctrl_hw::adc::ads101x;
 use rctrl_hw::adc::ads101x::ADS101x;
 use rctrl_hw::sensor::KellerPA7LC;
@@ -58,9 +57,13 @@ impl Context {
 
         std::thread::sleep(std::time::Duration::from_millis(500));
 
-        data.sensor = match self.adc.fc_ads1014_no1.read_ain1(&self.sensor.pressure) {
+        data.sensor = match self.adc.fc_ads1014_no1.read(&self.sensor.pressure) {
             Ok(pressure) => Some(pressure),
-            Err(e) => None,
+            Err(e) => {
+                // TODO: improve error handling/clarity of error
+                event!(Level::ERROR, "failed to read sensor: {}", e);
+                None
+            }
         };
     }
 }

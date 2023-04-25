@@ -63,6 +63,7 @@ impl DeriveStruct {
                 }
                 
                 // Create timestamp
+                // TODO: get rid off this, time stamp should be created in sync code so it is accurate
                 fn_body.push_parsed(format!("let timestamp = std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH)?.{}();", self.attributes.timestamp_precision.as_function_call()))?;
 
                 // Format line protocol
@@ -71,6 +72,43 @@ impl DeriveStruct {
                 ))?;
 
                 fn_body.push_parsed(format!("return Ok(line_protocol);"))?;
+                Ok(())
+            })?;
+        Ok(())
+    }
+
+    pub fn generate_to_line_protocol_entries(&self, generator: &mut Generator) -> Result<()> 
+    {
+        generator
+            .impl_for("ToLineProtocolEntries")
+            .generate_fn("to_line_protocol_entries")
+            .with_self_arg(FnSelfArg::RefSelf)
+            .with_return_type(
+                "core::result::Result<Vec<LineProtocol>, influx::error::LineProtocolError>",
+            )
+            .body(|fn_body| {
+                fn_body.push_parsed("let mut line_protocol_entries = Vec::<LineProtocol>::new();")?;
+    
+                for field in &self.fields.names() {
+                    let attributes = field
+                        .attributes()
+                        .get_attribute::<FieldAttributes>()?
+                        .unwrap_or_default();
+
+                    // Provide early escape on untracked entries
+                    match attributes {
+                        FieldAttributes::Untracked => break,
+                        _ => (),
+                    }       
+                
+                    fn_body.push_parsed(format!("match self.{} {{
+                        Some(entry) => line_protocol_entries.push(entry.to_line_protocol()?),
+                        None => (),
+                    }}", field.to_string()))?;
+                }
+
+                fn_body.push_parsed(format!("return Ok(line_protocol_entries);"))?;
+
                 Ok(())
             })?;
         Ok(())
